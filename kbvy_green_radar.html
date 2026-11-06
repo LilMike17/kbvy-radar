@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#03110c">
+<title>KBVY Green Scope</title>
+<style>
+:root{color-scheme:dark;--green:#54ff9a;--dim:#1d744a;--bg:#020a07}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% 35%,#0a2116,#020806 72%);color:#baffd1;font:15px ui-monospace,SFMono-Regular,Menlo,monospace}
+header{padding:15px 16px 8px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+h1{font-size:18px;letter-spacing:2px;color:#7dffad;margin:0} .sub{font-size:11px;color:#65a982;margin-top:5px}
+.pill{border:1px solid #226c46;border-radius:20px;padding:6px 9px;color:#8dffb7;font-size:11px;white-space:nowrap}
+main{max-width:900px;margin:auto;padding:8px 12px 22px}
+.scope-wrap{position:relative;width:min(94vw,680px);margin:4px auto 12px;aspect-ratio:1;border-radius:50%;overflow:hidden;box-shadow:0 0 35px #0b6c3a44,inset 0 0 28px #27ff8122}
+canvas{display:block;width:100%;height:100%}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.stat{border:1px solid #174b32;background:#06150e;border-radius:9px;padding:10px}
+.stat b{display:block;font-size:22px;color:#8dffb7}.stat span{font-size:10px;color:#6fa989;letter-spacing:1px}
+.panel{border:1px solid #174b32;background:#06140e;border-radius:10px;padding:12px;margin-top:10px}
+.panel h2{font-size:12px;letter-spacing:1.5px;color:#79fbaa;margin:0 0 9px}
+.aircraft{display:grid;grid-template-columns:1fr auto;gap:3px 12px;padding:9px 0;border-top:1px solid #123a27}
+.aircraft:first-of-type{border-top:0}.callsign{color:#baffd1;font-weight:bold}.meta{font-size:11px;color:#6fa989}.right{text-align:right;color:#91ffb7;font-size:12px}
+.note{font-size:10px;line-height:1.55;color:#6c9b80}
+button{background:#0b2a19;color:#a8ffc5;border:1px solid #28764c;border-radius:7px;padding:8px 11px;font:inherit;font-size:11px}
+.topline{display:flex;justify-content:space-between;align-items:center;gap:8px}
+a{color:#83ffb1}
+@media(min-width:700px){main{padding-top:12px}.scope-wrap{width:min(78vw,680px)}}
+</style>
+</head>
+<body>
+<header><div><h1>KBVY // GREEN SCOPE</h1><div class="sub">BEVERLY REGIONAL · LIVE ADS-B TRAFFIC</div></div><div class="pill" id="status">CONNECTING…</div></header>
+<main>
+ <div class="scope-wrap"><canvas id="scope" width="900" height="900" aria-label="Radar display showing aircraft within five statute miles of Beverly Airport"></canvas></div>
+ <section class="stats">
+  <div class="stat"><b id="count">—</b><span>CONTACTS</span></div>
+  <div class="stat"><b>5.0</b><span>STATUTE MI RANGE</span></div>
+  <div class="stat"><b id="clock">--:--:--</b><span>LOCAL REFRESH</span></div>
+ </section>
+ <section class="panel">
+  <div class="topline"><h2>TRACKED AIRCRAFT</h2><button id="refresh">↻ REFRESH</button></div>
+  <div id="list"><div class="note">Waiting for the first data update…</div></div>
+ </section>
+ <section class="panel">
+  <h2>AIRFIELD OVERLAY</h2>
+  <div class="note">RWY 16/34 · 5,001 × 100 FT<br>RWY 09/27 · 4,755 × 100 FT<br>Airport reference: 42.5842° N, 70.9165° W</div>
+ </section>
+ <p class="note">Data: adsb.lol community ADS-B network. Updates about every 10 seconds. Coverage is not complete; aircraft without received position reports will not appear. This hobby display is not for navigation, separation, or operational decisions. Aircraft positions and details may be delayed or unavailable. Runway geometry is a simplified visual overlay, not an airport diagram.</p>
+</main>
+<script>
+(() => {
+const C={lat:42.5842,lon:-70.9165}, RANGE_MI=5, API_RADIUS_NM=4.34;
+const cvs=document.getElementById('scope'),ctx=cvs.getContext('2d'),W=900,H=900,cx=450,cy=450,R=390;
+let aircraft=[],sweep=0,lastUpdate=null,fetching=false;
+const rad=d=>d*Math.PI/180;
+function xy(lat,lon){const y=(lat-C.lat)*60, x=(lon-C.lon)*60*Math.cos(rad(C.lat));return {x:cx+x/RANGE_MI*R,y:cy-y/RANGE_MI*R};}
+function runway(a,b){const p=xy(a[0],a[1]),q=xy(b[0],b[1]);ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.lineWidth=17;ctx.strokeStyle='#8e9d91';ctx.stroke();ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.lineWidth=1.5;ctx.setLineDash([10,8]);ctx.strokeStyle='#f1f4e6';ctx.stroke();ctx.setLineDash([]);}
+function label(t,x,y){ctx.font='bold 18px monospace';ctx.fillStyle='#d4ffe2';ctx.fillText(t,x,y);}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ ctx.save();ctx.beginPath();ctx.arc(cx,cy,R,0,Math.PI*2);ctx.clip();
+ ctx.fillStyle='#03150d';ctx.fillRect(0,0,W,H);
+ // subtle grid and range rings
+ ctx.strokeStyle='rgba(62,255,139,.22)';ctx.lineWidth=1;
+ for(let i=1;i<=5;i++){ctx.beginPath();ctx.arc(cx,cy,R*i/5,0,Math.PI*2);ctx.stroke();}
+ ctx.beginPath();ctx.moveTo(cx-R,cy);ctx.lineTo(cx+R,cy);ctx.moveTo(cx,cy-R);ctx.lineTo(cx,cy+R);ctx.stroke();
+ // runway endpoints from published airport data
+ runway([42.591945,-70.921925],[42.581336,-70.910148]);
+ runway([42.579744,-70.924755],[42.583279,-70.907762]);
+ label('16',xy(42.591945,-70.921925).x-12,xy(42.591945,-70.921925).y-12);
+ label('34',xy(42.581336,-70.910148).x+8,xy(42.581336,-70.910148).y+18);
+ label('09',xy(42.579744,-70.924755).x-22,xy(42.579744,-70.924755).y+18);
+ label('27',xy(42.583279,-70.907762).x+8,xy(42.583279,-70.907762).y-8);
+ // rotating sweep
+ const a=sweep, grad=ctx.createConicalGradient?null:null;
+ ctx.save();ctx.translate(cx,cy);ctx.rotate(a);
+ const g=ctx.createLinearGradient(0,0,R,0);g.addColorStop(0,'rgba(74,255,142,0)');g.addColorStop(1,'rgba(74,255,142,.25)');
+ ctx.beginPath();ctx.moveTo(0,0);ctx.arc(0,0,R,-.24,.01);ctx.closePath();ctx.fillStyle=g;ctx.fill();ctx.restore();
+ // aircraft
+ aircraft.forEach(ac=>{
+  if(!Number.isFinite(ac.lat)||!Number.isFinite(ac.lon))return;
+  const p=xy(ac.lat,ac.lon),dx=p.x-cx,dy=p.y-cy;
+  if(Math.hypot(dx,dy)>R)return;
+  ctx.save();ctx.translate(p.x,p.y);ctx.rotate(rad(Number(ac.track)||0));
+  ctx.fillStyle='#aaffc6';ctx.strokeStyle='#46ff91';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(0,-12);ctx.lineTo(7,8);ctx.lineTo(0,5);ctx.lineTo(-7,8);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
+  const tag=(ac.flight||ac.hex||'AC').trim();
+  ctx.font='bold 15px monospace';ctx.fillStyle='#c8ffda';ctx.fillText(tag,p.x+10,p.y-9);
+ });
+ // center beacon
+ ctx.beginPath();ctx.arc(cx,cy,5,0,Math.PI*2);ctx.fillStyle='#baffd1';ctx.fill();
+ ctx.restore();
+ // outer rim and range labels
+ ctx.beginPath();ctx.arc(cx,cy,R,0,Math.PI*2);ctx.strokeStyle='#43f98a';ctx.lineWidth=3;ctx.stroke();
+ ctx.fillStyle='#78d99a';ctx.font='14px monospace';ctx.fillText('1 MI',cx+R/5+5,cy-7);ctx.fillText('3 MI',cx+R*3/5+5,cy-7);ctx.fillText('5 MI',cx+R-48,cy-7);
+ sweep=(sweep+.012)% (Math.PI*2);
+ requestAnimationFrame(draw);
+}
+function miles(lat,lon){const dy=(lat-C.lat)*69.0,dx=(lon-C.lon)*69.0*Math.cos(rad(C.lat));return Math.hypot(dx,dy);}
+function fmtAlt(a){if(a.alt_baro==='ground')return 'GROUND';if(Number.isFinite(Number(a.alt_baro)))return Math.round(Number(a.alt_baro)).toLocaleString()+' ft';return 'ALT N/A';}
+function renderList(){
+ document.getElementById('count').textContent=aircraft.length;
+ const el=document.getElementById('list');
+ if(!aircraft.length){el.innerHTML='<div class="note">No aircraft with a recent position report inside 5 miles.</div>';return;}
+ el.innerHTML=aircraft.slice().sort((a,b)=>miles(a.lat,a.lon)-miles(b.lat,b.lon)).map(a=>{
+  const call=(a.flight||a.hex||'UNKNOWN').trim(),dist=miles(a.lat,a.lon).toFixed(1);
+  return `<div class="aircraft"><div><div class="callsign">${safe(call)}</div><div class="meta">${safe(a.t||'Aircraft')} · ${safe(a.hex||'')}</div></div><div class="right">${dist} MI<br>${fmtAlt(a)}<br>${Number.isFinite(Number(a.gs))?Math.round(a.gs)+' kt':'GS N/A'}</div></div>`;
+ }).join('');
+}
+function safe(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function update(){
+ if(fetching)return;fetching=true;document.getElementById('status').textContent='UPDATING…';
+ try{
+  const url=`https://api.adsb.lol/v2/point/${C.lat}/${C.lon}/${API_RADIUS_NM}`;
+  const res=await fetch(url,{cache:'no-store'});if(!res.ok)throw Error('HTTP '+res.status);
+  const data=await res.json(),arr=Array.isArray(data.ac)?data.ac:[];
+  aircraft=arr.filter(a=>Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon))&&miles(Number(a.lat),Number(a.lon))<=RANGE_MI);
+  lastUpdate=new Date();document.getElementById('clock').textContent=lastUpdate.toLocaleTimeString();
+  document.getElementById('status').textContent='● LIVE FEED';renderList();
+ }catch(e){document.getElementById('status').textContent='FEED OFFLINE';document.getElementById('list').innerHTML='<div class="note">Could not reach the ADS-B feed. Check your connection and tap REFRESH. The feed may occasionally be unavailable.</div>';}
+ finally{fetching=false;}
+}
+document.getElementById('refresh').addEventListener('click',update);
+draw();update();setInterval(update,10000);
+})();
+</script>
+</body>
+</html>
