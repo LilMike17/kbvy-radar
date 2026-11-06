@@ -112,7 +112,7 @@ async function update(){
  if(fetching)return;fetching=true;document.getElementById('status').textContent='UPDATING…';
  try{
   const url=`https://api.adsb.lol/v2/point/${C.lat}/${C.lon}/${API_RADIUS_NM}`;
-  const res=await fetch('https://proxy.cors.dev/'+url,{cache:'no-store'});if(!res.ok)throw Error('HTTP '+res.status);
+  const res=await fetch('https://proxy.cors.dev/'+url,{cache:'no-store',credentials:'omit'});
   const data=await res.json(),arr=Array.isArray(data.ac)?data.ac:[];
   aircraft=arr.filter(a=>Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon))&&miles(Number(a.lat),Number(a.lon))<=RANGE_MI);
   lastUpdate=new Date();document.getElementById('clock').textContent=lastUpdate.toLocaleTimeString();
